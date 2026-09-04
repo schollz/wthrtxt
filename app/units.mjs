@@ -24,6 +24,15 @@ export function fahrenheitToCelsius(value) {
 }
 
 /**
+ * @param {Array<number | null | undefined>} values
+ * @returns {number | null}
+ */
+export function highestTemperature(values) {
+  const temperatures = values.filter((value) => Number.isFinite(value));
+  return temperatures.length ? Math.max(...temperatures) : null;
+}
+
+/**
  * @param {number | null | undefined} value
  * @param {boolean} metric
  */

@@ -6,9 +6,17 @@ import {
   formatObservedRainfall,
   formatRainfallInches,
   normalizeNoaaPrecipitation,
+  precipitationInches,
   recentRainfallTotal,
   remainingRainfallTotal,
 } from "../app/precipitation.mjs";
+
+test("converts observed NOAA precipitation units to inches", () => {
+  assert.equal(precipitationInches(18.5, "wmoUnit:mm").toFixed(5), "0.72835");
+  assert.equal(precipitationInches(0.002, "wmoUnit:m").toFixed(5), "0.07874");
+  assert.equal(precipitationInches(0.25, "wmoUnit:in"), 0.25);
+  assert.equal(precipitationInches(1, "wmoUnit:unknown"), null);
+});
 
 test("distributes a multi-hour NOAA total evenly across its hours", () => {
   const intervals = normalizeNoaaPrecipitation({

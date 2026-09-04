@@ -39,6 +39,7 @@ import {
   formatObservedRainfall,
   formatRainfallInches,
   normalizeNoaaPrecipitation,
+  precipitationInches,
   recentRainfallTotal,
   remainingRainfallTotal,
 } from "./precipitation.mjs";
@@ -51,6 +52,7 @@ import {
 import {
   formatTemperature,
   formatWind,
+  highestTemperature,
   usesMetricUnits,
 } from "./units.mjs";
 import ProjectFooter from "./project-footer";
@@ -520,20 +522,18 @@ function celsiusToFahrenheit(value: number | null) {
   return value === null ? null : (value * 9) / 5 + 32;
 }
 
-function metersToInches(value: number | null) {
-  return value === null ? null : value * 39.3701;
-}
-
 function observationPrecipitationInches(observation: StationObservation) {
   const structuredValue = observation.precipitationLastHour?.value ?? null;
   const structuredUnit =
     observation.precipitationLastHour?.unitCode.toLowerCase() ?? "";
   const rawMessage = observation.rawMessage ?? "";
+  const structuredAmount = precipitationInches(
+    structuredValue,
+    structuredUnit,
+  );
 
-  if (structuredValue !== null) {
-    return structuredUnit.includes("in")
-      ? structuredValue
-      : metersToInches(structuredValue);
+  if (structuredAmount !== null) {
+    return structuredAmount;
   }
 
   const metarAmount = rawMessage.match(/\bP(\d{4})\b/);
@@ -2828,6 +2828,21 @@ export default function WeatherClient() {
     const today = localDateKey(new Date(), weather.timeZone);
     const periodsByDate = new Map<string, HourlyPeriod[]>();
     const hourlyByDate = new Map<string, HourlyPeriod[]>();
+    const observedTodayTemperatures = weather.observations.flatMap(
+      (observation) => {
+        const timestamp = new Date(observation.timestamp);
+        const temperature = observationTemperatureFahrenheit(observation);
+
+        return localDateKey(timestamp, weather.timeZone) === today &&
+          temperature !== null
+          ? [temperature]
+          : [];
+      },
+    );
+
+    const observedTodayHigh = highestTemperature(
+      observedTodayTemperatures,
+    );
 
     weather.daily.forEach((period) => {
       const start = new Date(period.startTime);
@@ -2865,7 +2880,13 @@ export default function WeatherClient() {
             weather.timeZone,
           ),
           description: representative.shortForecast,
-          high: daytime?.temperature ?? null,
+          high:
+            dateKey === today
+              ? highestTemperature([
+                  daytime?.temperature,
+                  observedTodayHigh,
+                ])
+              : (daytime?.temperature ?? null),
           isDaytime: representative.isDaytime,
           isToday: dateKey === today,
           low: nighttime?.temperature ?? null,

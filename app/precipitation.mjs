@@ -46,7 +46,14 @@ function durationMilliseconds(duration) {
   return milliseconds > 0 ? milliseconds : null;
 }
 
-function precipitationInches(value, unitCode) {
+/**
+ * Convert a precipitation measurement to inches.
+ *
+ * @param {number | null} value
+ * @param {string} unitCode
+ * @returns {number | null}
+ */
+export function precipitationInches(value, unitCode) {
   if (!Number.isFinite(value)) return null;
 
   const unit = unitCode.toLowerCase();

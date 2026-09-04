@@ -4,6 +4,7 @@ import {
   fahrenheitToCelsius,
   formatTemperature,
   formatWind,
+  highestTemperature,
   usesMetricUnits,
 } from "../app/units.mjs";
 
@@ -23,4 +24,10 @@ test("formats normalized weather values in the selected units", () => {
   assert.equal(formatTemperature(null, true), "—");
   assert.equal(formatWind("5 to 10 mph", false), "5 to 10 mph");
   assert.equal(formatWind("5 to 10 mph", true), "8 to 16 km/h");
+});
+
+test("keeps today's observed high after the daytime forecast expires", () => {
+  assert.equal(highestTemperature([null, 55, 61, 67, 59]), 67);
+  assert.equal(highestTemperature([66, 55, 61, 67, 59]), 67);
+  assert.equal(highestTemperature([null, undefined]), null);
 });
