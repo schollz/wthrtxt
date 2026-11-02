@@ -112,6 +112,7 @@ export default function ForecastChart({ label, series, window, timeZone, metric 
             }}>
             <desc id={`${id}-description`}>
               Temperature on the left axis; hourly rainfall in {metric ? "millimeters" : "inches"} on the right.
+              Earlier hours use historical rainfall readings; future hours use forecasts.
               Dashed temperature lines use broader forecast periods.
               Move across the chart or use the arrow keys to inspect values. Gaps mean unavailable data.
             </desc>
@@ -150,6 +151,8 @@ export default function ForecastChart({ label, series, window, timeZone, metric 
               {" · "}{formatTemperature(activeTemp?.value, metric)}
               {" · fall "}{activeRain?.value == null ? "—" :
                 `${formatRainfallColumn(activeRain.value, metric, true)} ${metric ? "mm" : "in."}`}
+              {activeRain?.value != null && activeRain.source ?
+                ` · ${activeRain.source === "estimated" ? "model estimate" : activeRain.source}` : ""}
               {activeTemp?.coarse || activeRain?.coarse ? " · period forecast" : ""}
             </> : null}
           </p>

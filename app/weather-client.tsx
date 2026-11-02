@@ -58,7 +58,7 @@ import {
 } from "./units.mjs";
 import ProjectFooter from "./project-footer";
 import ForecastChart from "./forecast-chart";
-import { chartTimeWindow, forecastChartSeries } from "./forecast-chart-data.mjs";
+import { chartTimeWindow, forecastChartSeries, withObservedRainfall } from "./forecast-chart-data.mjs";
 
 const DISPLAY_HOURS = Array.from({ length: 18 }, (_, index) => index + 5);
 const SEATTLE = { latitude: 47.6062, longitude: -122.3321 };
@@ -2831,30 +2831,34 @@ export default function WeatherClient() {
     const today = chartTimeWindow(weather.timeZone, 1, now);
     // Match the table's observed temperatures and rainfall for past hours.
     const observations = new Map<number, StationObservation>();
+    const rainObservations = new Map<number, StationObservation>();
     weather.observations.forEach((observation) => {
       const timestamp = Date.parse(observation.timestamp);
       const minute = Number(zonedParts(new Date(timestamp), weather.timeZone).minute);
       const time = Math.floor(timestamp / 60_000) * 60_000 - minute * 60_000;
-      if (time >= today.start && time < today.end && timestamp <= now.getTime()
-        && isPreferredObservation(observation, observations.get(time))) {
-        observations.set(time, observation);
-      }
+      if (time < today.start || time >= today.end || timestamp > now.getTime()) return;
+      if (isPreferredObservation(observation, observations.get(time))) observations.set(time, observation);
+      // A temperature report may omit precipitation; select a usable rain
+      // reading independently, without summing overlapping station reports.
+      if (observationPrecipitationInches(observation) !== null &&
+        isPreferredObservation(observation, rainObservations.get(time))) rainObservations.set(time, observation);
     });
     const temperatures = new Map(series.temperature.map((point) => [point.time, point]));
-    const rainfall = new Map(series.rainfall.map((point) => [point.time, point]));
     observations.forEach((observation, time) => {
       const value = observationTemperatureFahrenheit(observation);
       if (value !== null) temperatures.set(time, { time, endTime: time + 3_600_000, value, coarse: false });
-      const amount = observationPrecipitationInches(observation);
-      if (amount !== null) rainfall.set(time, {
-        time, endTime: time + 3_600_000, value: amount, coarse: false,
-      });
     });
+    const history = Array.from(rainObservations, ([time, observation]) => ({
+      time,
+      timestamp: Date.parse(observation.timestamp),
+      value: observationPrecipitationInches(observation),
+      source: observation.source ?? "observed" as const,
+    }));
 
     return {
       series: {
         temperature: [...temperatures.values()].sort((a, b) => a.time - b.time),
-        rainfall: [...rainfall.values()].sort((a, b) => a.time - b.time),
+        rainfall: withObservedRainfall(series.rainfall, history, today, now),
       },
       today,
       week: chartTimeWindow(weather.timeZone, 7, now),

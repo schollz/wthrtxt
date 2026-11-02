@@ -9,7 +9,7 @@ const HOUR_MS = 60 * 60 * 1000;
  * @typedef {{ startTime: string; endTime: string; temperature: number | null;
  * forecastPrecipitationInches?: number | null }} ForecastPeriod
  * @typedef {{ time: number; endTime: number; value: number | null;
- * coarse: boolean }} ChartSample
+ * coarse: boolean; source?: "observed" | "estimated" | "forecast" }} ChartSample
  */
 
 /**
@@ -68,6 +68,42 @@ export function forecastChartSeries(
     temperature: series((period) => period.temperature),
     rainfall,
   };
+}
+
+/** Replace past forecast amounts with historical hourly measurements only.
+ * @param {ChartSample[]} forecast
+ * @param {Array<{ time: number; timestamp: number; value: number | null;
+ * source?: "observed" | "estimated" }>} history
+ * @param {{ start: number; end: number }} window
+ * @param {Date} [now]
+ * @returns {ChartSample[]}
+ */
+export function withObservedRainfall(forecast, history, window, now = new Date()) {
+  const nowTime = now.getTime();
+  // Count real elapsed hours to retain both occurrences of a repeated DST hour
+  // and align correctly in locations with fractional UTC offsets.
+  const currentHour = window.start + Math.floor((nowTime - window.start) / HOUR_MS) * HOUR_MS;
+  /** @type {Map<number, ChartSample>} */
+  const samples = new Map(forecast.map((point) => [point.time,
+    point.time < currentHour && point.endTime > window.start && point.time < window.end
+      ? { ...point, value: null }
+      : { ...point, source: "forecast" }]));
+
+  for (let time = window.start; time < Math.min(currentHour, window.end); time += HOUR_MS) {
+    samples.set(time, { time, endTime: time + HOUR_MS, value: null, coarse: false });
+  }
+
+  history.forEach((point) => {
+    if (point.time < window.start || point.time >= window.end || point.time > currentHour ||
+      !Number.isFinite(point.timestamp) || point.timestamp > nowTime ||
+      point.value === null || !Number.isFinite(point.value) || point.value < 0) return;
+    samples.set(point.time, {
+      time: point.time, endTime: point.time + HOUR_MS, value: point.value,
+      coarse: false, source: point.source ?? "observed",
+    });
+  });
+
+  return [...samples.values()].sort((a, b) => a.time - b.time);
 }
 
 /** A nonnegative rainfall axis in the displayed units, including dry days.
