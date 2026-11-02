@@ -1,19 +1,29 @@
+import {
+  forecastPrecipitationForPeriod,
+  hourlyPrecipitationIntervals,
+} from "./precipitation.mjs";
+
 const HOUR_MS = 60 * 60 * 1000;
 
 /**
  * @typedef {{ startTime: string; endTime: string; temperature: number | null;
- * probabilityOfPrecipitation?: { value: number | null } }} ForecastPeriod
+ * forecastPrecipitationInches?: number | null }} ForecastPeriod
  * @typedef {{ time: number; endTime: number; value: number | null;
  * coarse: boolean }} ChartSample
  */
 
 /**
- * Keep each variable's hourly detail until its own coverage ends, then use
- * the remaining day/night periods. Missing values stay missing, including 0%.
+ * Keep hourly temperatures, then use remaining day/night periods. Rainfall
+ * is an hourly amount in inches, allocated from the original interval totals.
  * @param {ForecastPeriod[]} hourly
  * @param {ForecastPeriod[]} daily
+ * @param {import("./precipitation.mjs").PrecipitationInterval[]} [precipitationIntervals]
  */
-export function forecastChartSeries(hourly, daily) {
+export function forecastChartSeries(
+  hourly,
+  daily,
+  precipitationIntervals = hourlyPrecipitationIntervals(hourly),
+) {
   /** @param {(period: ForecastPeriod) => number | null | undefined} readValue */
   const series = (readValue) => {
     /** @param {ForecastPeriod} period @param {boolean} coarse @returns {ChartSample} */
@@ -40,10 +50,40 @@ export function forecastChartSeries(hourly, daily) {
       .sort((a, b) => a.time - b.time);
   };
 
+  /** @type {ChartSample[]} */
+  const rainfall = [];
+  const start = Math.min(...precipitationIntervals.map((interval) => interval.startTime));
+  const end = Math.max(...precipitationIntervals.map((interval) => interval.endTime));
+  for (let time = start; time < end; time += HOUR_MS) {
+    const endTime = Math.min(time + HOUR_MS, end);
+    rainfall.push({
+      time,
+      endTime,
+      value: forecastPrecipitationForPeriod(precipitationIntervals, time, endTime),
+      coarse: false,
+    });
+  }
+
   return {
     temperature: series((period) => period.temperature),
-    rain: series((period) => period.probabilityOfPrecipitation?.value),
+    rainfall,
   };
+}
+
+/** A nonnegative rainfall axis in the displayed units, including dry days.
+ * @param {Array<number | null>} amountsInches
+ * @param {boolean} metric
+ */
+export function rainfallChartScale(amountsInches, metric) {
+  const values = amountsInches.flatMap((value) =>
+    value !== null && Number.isFinite(value) && value >= 0
+      ? [metric ? value * 25.4 : value]
+      : []);
+  const rawStep = Math.max(Math.max(0, ...values) / 4, metric ? 0.1 : 0.001);
+  const magnitude = 10 ** Math.floor(Math.log10(rawStep));
+  const multiple = [1, 2, 5, 10].find((value) => value >= rawStep / magnitude) ?? 10;
+  const step = multiple * magnitude;
+  return { maximum: step * 4, precision: Math.max(0, -Math.floor(Math.log10(step))) };
 }
 
 /** Use calendar days in the forecast location, including daylight-saving days.

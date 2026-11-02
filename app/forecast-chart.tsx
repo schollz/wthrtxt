@@ -2,6 +2,8 @@
 
 import { useId, useState } from "react";
 import { fahrenheitToCelsius, formatTemperature } from "./units.mjs";
+import { formatRainfallColumn } from "./precipitation.mjs";
+import { rainfallChartScale } from "./forecast-chart-data.mjs";
 import type { chartTimeWindow, forecastChartSeries } from "./forecast-chart-data.mjs";
 
 type Series = ReturnType<typeof forecastChartSeries>;
@@ -11,7 +13,7 @@ type Window = ReturnType<typeof chartTimeWindow>;
 const WIDTH = 540;
 const HEIGHT = 170;
 const LEFT = 42;
-const RIGHT = WIDTH - 40;
+const RIGHT = WIDTH - 52;
 const TOP = 18;
 const BOTTOM = HEIGHT - 30;
 
@@ -30,8 +32,10 @@ export default function ForecastChart({ label, series, window, timeZone, metric 
   const id = useId();
   const [activeTime, setActiveTime] = useState<number | null>(null);
   const temperature = visibleSamples(series.temperature, window);
-  const rain = visibleSamples(series.rain, window);
+  const rain = visibleSamples(series.rainfall, window);
   const convert = (value: number) => metric ? fahrenheitToCelsius(value) : value;
+  const convertRain = (value: number) => metric ? value * 25.4 : value;
+  const rainScale = rainfallChartScale(rain.map((point) => point.value), metric);
   const values = temperature.flatMap((point) => point.value === null ? [] : [convert(point.value)]);
   const rainAvailable = rain.some((point) => point.value !== null);
   const hasData = values.length > 0 || rainAvailable;
@@ -42,7 +46,7 @@ export default function ForecastChart({ label, series, window, timeZone, metric 
   const high = Math.max(low + step * 4, Math.ceil((maximum + 2) / step) * step);
   const x = (time: number) => LEFT + (time - window.start) / (window.end - window.start) * (RIGHT - LEFT);
   const yTemp = (value: number) => BOTTOM - (convert(value) - low) / (high - low) * (BOTTOM - TOP);
-  const yRain = (value: number) => BOTTOM - Math.min(100, Math.max(0, value)) / 100 * (BOTTOM - TOP);
+  const yRain = (value: number) => BOTTOM - Math.max(0, convertRain(value)) / rainScale.maximum * (BOTTOM - TOP);
 
   const paths = (samples: Sample[], y: (value: number) => number) => {
     const solid: string[] = [];
@@ -84,7 +88,7 @@ export default function ForecastChart({ label, series, window, timeZone, metric 
       <figcaption className="chart-heading">
         <span className="chart-legend">
           <span className="chart-temperature">temp (°{metric ? "C" : "F"})</span>
-          <span className="chart-rain">rain %</span>
+          <span className="chart-rain">fall ({metric ? "mm" : "in."})</span>
         </span>
       </figcaption>
       {hasData ? (
@@ -107,8 +111,8 @@ export default function ForecastChart({ label, series, window, timeZone, metric 
                 : Math.max(0, Math.min(times.length - 1, index + (event.key === "ArrowLeft" ? -1 : 1)))]);
             }}>
             <desc id={`${id}-description`}>
-              Temperature on the left axis; rain probability from 0 to 100 percent on the right.
-              Solid lines use hourly data. Dashed lines use broader forecast periods.
+              Temperature on the left axis; hourly rainfall in {metric ? "millimeters" : "inches"} on the right.
+              Dashed temperature lines use broader forecast periods.
               Move across the chart or use the arrow keys to inspect values. Gaps mean unavailable data.
             </desc>
             {[0, 1, 2, 3, 4].map((index) => {
@@ -118,7 +122,9 @@ export default function ForecastChart({ label, series, window, timeZone, metric 
                 <text className="chart-temperature" x={LEFT - 8} y={y + 3} textAnchor="end">
                   {Math.round(low + index / 4 * (high - low))}°
                 </text>
-                <text className="chart-rain" x={RIGHT + 8} y={y + 3}>{index * 25}%</text>
+                <text className="chart-rain" x={RIGHT + 8} y={y + 3}>
+                  {(index / 4 * rainScale.maximum).toFixed(rainScale.precision)}
+                </text>
               </g>;
             })}
             {daily && window.dayStarts.slice(1, -1).map((time) =>
@@ -142,7 +148,8 @@ export default function ForecastChart({ label, series, window, timeZone, metric 
             {activeTime !== null ? <>
               {new Intl.DateTimeFormat("en-US", { timeZone, weekday: "short", hour: "numeric", minute: "2-digit" }).format(activeTime)}
               {" · "}{formatTemperature(activeTemp?.value, metric)}
-              {" · rain "}{activeRain?.value == null ? "—" : `${Math.round(activeRain.value)}%`}
+              {" · fall "}{activeRain?.value == null ? "—" :
+                `${formatRainfallColumn(activeRain.value, metric, true)} ${metric ? "mm" : "in."}`}
               {activeTemp?.coarse || activeRain?.coarse ? " · period forecast" : ""}
             </> : null}
           </p>

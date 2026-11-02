@@ -2825,10 +2825,11 @@ export default function WeatherClient() {
     if (!weather) return null;
 
     const now = new Date();
-    const series = forecastChartSeries(weather.hourly, weather.daily);
+    const series = forecastChartSeries(
+      weather.hourly, weather.daily, weather.precipitationIntervals,
+    );
     const today = chartTimeWindow(weather.timeZone, 1, now);
-    // Match the table's observed temperatures for past hours. Observed rainfall
-    // is an amount, so it must never be plotted as a rain probability.
+    // Match the table's observed temperatures and rainfall for past hours.
     const observations = new Map<number, StationObservation>();
     weather.observations.forEach((observation) => {
       const timestamp = Date.parse(observation.timestamp);
@@ -2840,13 +2841,21 @@ export default function WeatherClient() {
       }
     });
     const temperatures = new Map(series.temperature.map((point) => [point.time, point]));
+    const rainfall = new Map(series.rainfall.map((point) => [point.time, point]));
     observations.forEach((observation, time) => {
       const value = observationTemperatureFahrenheit(observation);
       if (value !== null) temperatures.set(time, { time, endTime: time + 3_600_000, value, coarse: false });
+      const amount = observationPrecipitationInches(observation);
+      if (amount !== null) rainfall.set(time, {
+        time, endTime: time + 3_600_000, value: amount, coarse: false,
+      });
     });
 
     return {
-      series: { ...series, temperature: [...temperatures.values()].sort((a, b) => a.time - b.time) },
+      series: {
+        temperature: [...temperatures.values()].sort((a, b) => a.time - b.time),
+        rainfall: [...rainfall.values()].sort((a, b) => a.time - b.time),
+      },
       today,
       week: chartTimeWindow(weather.timeZone, 7, now),
     };
@@ -3249,7 +3258,7 @@ export default function WeatherClient() {
 
             {chartData && (
               <ForecastChart
-                label="Today's temperature and rain probability"
+                label="Today's temperature and hourly rainfall"
                 series={chartData.series}
                 window={chartData.today}
                 timeZone={weather.timeZone}
@@ -3345,7 +3354,7 @@ export default function WeatherClient() {
 
             {chartData && (
               <ForecastChart
-                label="Seven-day temperature and rain probability"
+                label="Seven-day temperature and hourly rainfall"
                 series={chartData.series}
                 window={chartData.week}
                 timeZone={weather.timeZone}
