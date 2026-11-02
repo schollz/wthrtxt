@@ -506,6 +506,21 @@ a {
   fill: var(--chart-rain);
 }
 
+.chart-spread-key {
+  color: var(--chart-temperature);
+}
+
+.chart-legend > .chart-spread-key::before {
+  border-top-width: 6px;
+  opacity: 0.2;
+}
+
+.chart-temperature-spread {
+  fill: var(--chart-temperature);
+  opacity: 0.14;
+  pointer-events: none;
+}
+
 .chart-plot {
   display: block;
   width: 100%;

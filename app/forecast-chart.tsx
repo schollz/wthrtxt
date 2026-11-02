@@ -4,6 +4,8 @@ import { useEffect, useId, useState } from "react";
 import { fahrenheitToCelsius, formatTemperature } from "./units.mjs";
 import { formatRainfallColumn } from "./precipitation.mjs";
 import { rainfallChartScale } from "./forecast-chart-data.mjs";
+import { temperatureCurveSegments, temperatureSpreadSegments } from "./temperature-spread.mjs";
+import type { CurveSegment, RecordRange } from "./temperature-spread.mjs";
 import type { chartTimeWindow, forecastChartSeries } from "./forecast-chart-data.mjs";
 
 type Series = ReturnType<typeof forecastChartSeries>;
@@ -22,12 +24,13 @@ function visibleSamples(samples: Sample[], window: Window) {
     .map((point) => ({ ...point, time: Math.max(point.time, window.start) }));
 }
 
-export default function ForecastChart({ label, series, window, timeZone, metric }: {
+export default function ForecastChart({ label, series, window, timeZone, metric, recordSpreads = [] }: {
   label: string;
   series: Series;
   window: Window;
   timeZone: string;
   metric: boolean;
+  recordSpreads?: RecordRange[];
 }) {
   const id = useId();
   const [activeTime, setActiveTime] = useState<number | null>(null);
@@ -41,15 +44,19 @@ export default function ForecastChart({ label, series, window, timeZone, metric 
   }, [daily]);
 
   const temperature = visibleSamples(series.temperature, window);
+  const spread = daily ? temperatureSpreadSegments(temperature, recordSpreads) : [];
   const rain = visibleSamples(series.rainfall, window);
   const convert = (value: number) => metric ? fahrenheitToCelsius(value) : value;
   const convertRain = (value: number) => metric ? value * 25.4 : value;
   const rainScale = rainfallChartScale(rain.map((point) => point.value), metric);
   const values = temperature.flatMap((point) => point.value === null ? [] : [convert(point.value)]);
+  const spreadValues = spread.flatMap(({ upper, lower }) => [upper, lower]
+    .flatMap((curve) => [curve.start, curve.control1, curve.control2, curve.end].map((point) => convert(point.value))));
+  const extent = [...values, ...spreadValues];
   const rainAvailable = rain.some((point) => point.value !== null);
   const hasData = values.length > 0 || rainAvailable;
-  const minimum = values.length ? Math.min(...values) : 0;
-  const maximum = values.length ? Math.max(...values) : 20;
+  const minimum = extent.length ? Math.min(...extent) : 0;
+  const maximum = extent.length ? Math.max(...extent) : 20;
   const step = Math.max(1, Math.ceil((maximum - minimum + 4) / 4 / 5) * 5);
   const low = Math.floor((minimum - 2) / step) * step;
   const high = Math.max(low + step * 4, Math.ceil((maximum + 2) / step) * step);
@@ -68,7 +75,29 @@ export default function ForecastChart({ label, series, window, timeZone, metric 
     });
     return { solid: solid.join(" "), dashed: dashed.join(" ") };
   };
-  const tempPaths = paths(temperature, yTemp);
+  const curveCommand = (curve: CurveSegment) =>
+    `C${x(curve.control1.time)},${yTemp(curve.control1.value)} ${x(curve.control2.time)},${yTemp(curve.control2.value)} ${x(curve.end.time)},${yTemp(curve.end.value)}`;
+  const tempCurves = daily ? temperatureCurveSegments(temperature) : [];
+  const tempPaths = daily ? {
+    solid: tempCurves.filter((curve) => !curve.coarse).map((curve) =>
+      `M${x(curve.start.time)},${yTemp(curve.start.value)} ${curveCommand(curve)}`).join(" "),
+    dashed: tempCurves.filter((curve) => curve.coarse).map((curve) =>
+      `M${x(curve.start.time)},${yTemp(curve.start.value)} ${curveCommand(curve)}`).join(" "),
+  } : paths(temperature, yTemp);
+  const spreadGroups: typeof spread[] = [];
+  spread.forEach((segment) => {
+    const group = spreadGroups[spreadGroups.length - 1];
+    if (group && group[group.length - 1].upper.end.time === segment.upper.start.time) group.push(segment);
+    else spreadGroups.push([segment]);
+  });
+  const spreadPath = spreadGroups.map((group) => {
+    const first = group[0].upper.start;
+    const last = group[group.length - 1].lower.end;
+    return `M${x(first.time)},${yTemp(first.value)} ${group.map(({ upper }) => curveCommand(upper)).join(" ")}
+      L${x(last.time)},${yTemp(last.value)} ${[...group].reverse().map(({ lower }) => curveCommand({
+        ...lower, start: lower.end, control1: lower.control2, control2: lower.control1, end: lower.start,
+      })).join(" ")} Z`;
+  }).join(" ");
   const rainPaths = paths(rain, yRain);
   const times = [...new Set([...temperature, ...rain].map((point) => point.time))].sort((a, b) => a - b);
   const nearestTime = (time: number) => times.reduce((nearest, candidate) =>
@@ -96,6 +125,7 @@ export default function ForecastChart({ label, series, window, timeZone, metric 
       <figcaption className="chart-heading">
         <span className="chart-legend">
           <span className="chart-temperature">temp (°{metric ? "C" : "F"})</span>
+          {spread.length > 0 && <span className="chart-spread-key">record spread</span>}
           <span className="chart-rain">fall ({metric ? "mm" : "in."})</span>
         </span>
       </figcaption>
@@ -122,8 +152,10 @@ export default function ForecastChart({ label, series, window, timeZone, metric 
               Temperature on the left axis; hourly rainfall in {metric ? "millimeters" : "inches"} on the right.
               Earlier hours use historical rainfall readings; future hours use forecasts.
               Dashed temperature lines use broader forecast periods.
+              {spread.length > 0 && "The shaded band is a variation proxy, centered on the forecast using half the historical record range on each side."}
               Move across the chart or use the arrow keys to inspect values. Gaps mean unavailable data.
             </desc>
+            {spreadPath && <path className="chart-temperature-spread" d={spreadPath} aria-hidden="true" />}
             {[0, 1, 2, 3, 4].map((index) => {
               const y = BOTTOM - index / 4 * (BOTTOM - TOP);
               return <g key={index}>

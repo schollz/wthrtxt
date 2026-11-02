@@ -2964,6 +2964,7 @@ export default function WeatherClient() {
               : (daytime?.temperature ?? null),
           isDaytime: representative.isDaytime,
           isToday: dateKey === today,
+          spreadTime: (dayWindow.start + dayWindow.end) / 2,
           low: nighttime?.temperature ?? null,
           fall: forecastRainfallSummary(
             precipitationIntervals, dayWindow.start, dayWindow.end,
@@ -3385,6 +3386,11 @@ export default function WeatherClient() {
             {chartData && (
               <ForecastChart
                 label="Seven-day temperature and hourly rainfall"
+                recordSpreads={sevenDay.map((forecast) => ({
+                  time: forecast.spreadTime,
+                  high: forecast.recordHigh?.temperatureF ?? null,
+                  low: forecast.recordLow?.temperatureF ?? null,
+                }))}
                 series={chartData.series}
                 window={chartData.week}
                 timeZone={weather.timeZone}
