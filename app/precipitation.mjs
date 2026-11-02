@@ -24,6 +24,7 @@
 /**
  * @typedef {{
  *   amountInches: number | null;
+ *   priority?: number;
  *   timestamp: string;
  * }} ObservedPrecipitationReading
  */
@@ -289,6 +290,38 @@ export function recentRainfallTotal(
   });
 
   return foundValue ? total : null;
+}
+
+/** Combine one observed reading per hour with any remaining overnight forecast.
+ * Past missing observations are never replaced with an old forecast.
+ * @param {ObservedPrecipitationReading[]} readings
+ * @param {PrecipitationInterval[]} forecast
+ * @param {{ start: number; end: number }} window
+ * @param {Date} [now]
+ * @returns {number | null}
+ */
+export function overnightRainfallTotal(readings, forecast, window, now = new Date()) {
+  const nowTime = now.getTime();
+  const observedEnd = Math.min(nowTime, window.end);
+  /** @type {Map<number, ObservedPrecipitationReading>} */
+  const hourly = new Map();
+  readings.forEach((reading) => {
+    const timestamp = Date.parse(reading.timestamp);
+    if (!Number.isFinite(timestamp) || timestamp <= window.start || timestamp > observedEnd ||
+      reading.amountInches === null || !Number.isFinite(reading.amountInches) || reading.amountInches < 0) return;
+    // UTC hour keys keep repeated daylight-saving hours distinct.
+    const hour = Math.floor(timestamp / 3_600_000);
+    const existing = hourly.get(hour);
+    if (!existing || (reading.priority ?? 0) > (existing.priority ?? 0) ||
+      ((reading.priority ?? 0) === (existing.priority ?? 0) && timestamp > Date.parse(existing.timestamp))) {
+      hourly.set(hour, reading);
+    }
+  });
+  const remaining = nowTime < window.end
+    ? forecastPrecipitationForPeriod(forecast, Math.max(nowTime, window.start), window.end)
+    : null;
+  if (!hourly.size && remaining === null) return null;
+  return [...hourly.values()].reduce((sum, reading) => sum + reading.amountInches, 0) + (remaining ?? 0);
 }
 
 /**

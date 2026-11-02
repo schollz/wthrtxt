@@ -40,6 +40,7 @@ import {
   formatRainfallInches,
   hourlyPrecipitationIntervals,
   normalizeNoaaPrecipitation,
+  overnightRainfallTotal,
   precipitationInches,
   recentRainfallTotal,
   remainingRainfallTotal,
@@ -58,7 +59,12 @@ import {
 } from "./units.mjs";
 import ProjectFooter from "./project-footer";
 import ForecastChart from "./forecast-chart";
-import { chartTimeWindow, forecastChartSeries, withObservedRainfall } from "./forecast-chart-data.mjs";
+import {
+  chartTimeWindow,
+  forecastChartSeries,
+  overnightRainfallWindow,
+  withObservedRainfall,
+} from "./forecast-chart-data.mjs";
 
 const DISPLAY_HOURS = Array.from({ length: 18 }, (_, index) => index + 5);
 const SEATTLE = { latitude: 47.6062, longitude: -122.3321 };
@@ -889,6 +895,8 @@ async function getOpenMeteoWeather(
   url.searchParams.set("timezone", "auto");
   url.searchParams.set("timeformat", "unixtime");
   url.searchParams.set("forecast_days", "7");
+  url.searchParams.set("past_hours", "30");
+  url.searchParams.set("forecast_hours", "168");
 
   const data = await fetchOpenMeteoJson<OpenMeteoForecastResponse>(
     url.toString(),
@@ -2738,6 +2746,16 @@ export default function WeatherClient() {
     const currentHour = Number(zonedParts(now, weather.timeZone).hour);
     const hourlyByHour = new Map<number, HourlyPeriod>();
     const observationsByHour = new Map<number, StationObservation>();
+    const overnightFall = formatRainfallColumn(overnightRainfallTotal(
+      weather.observations.map((observation) => ({
+        amountInches: observationPrecipitationInches(observation),
+        priority: observationPriority(observation),
+        timestamp: observation.timestamp,
+      })),
+      weather.precipitationIntervals ?? hourlyPrecipitationIntervals(weather.hourly),
+      overnightRainfallWindow(weather.timeZone, now),
+      now,
+    ), metricUnits, true);
 
     weather.hourly.forEach((period) => {
       const start = new Date(period.startTime);
@@ -2772,6 +2790,7 @@ export default function WeatherClient() {
     return DISPLAY_HOURS.map((hour) => ({
       hour,
       isClosest: hour === closestHour,
+      overnightFall: hour === 5 ? overnightFall : undefined,
       reading:
         hour <= currentHour && observationsByHour.has(hour)
           ? (() => {
@@ -3281,7 +3300,7 @@ export default function WeatherClient() {
             </div>
 
             <ol className="hourly-list">
-              {day.map(({ hour, isClosest, reading }) => (
+              {day.map(({ hour, isClosest, reading, overnightFall }) => (
                 <li className={isClosest ? "closest" : ""} key={hour}>
                   <span className="now-marker" aria-hidden="true">
                     {isClosest ? ">" : ""}
@@ -3323,7 +3342,13 @@ export default function WeatherClient() {
                       : `${Math.round(reading.humidity)}%`}
                   </span>
                   <span>{reading?.rain == null ? "—" : `${Math.round(reading.rain)}%`}</span>
-                  <span>{reading?.fall ?? "—"}</span>
+                  <span
+                    className={hour === 5 ? "hover-tip" : undefined}
+                    data-tooltip={hour === 5 ? "Overnight rainfall total: previous day 10 PM to 5 AM" : undefined}
+                    tabIndex={hour === 5 ? 0 : undefined}
+                  >
+                    {overnightFall ?? reading?.fall ?? "—"}
+                  </span>
                 </li>
               ))}
             </ol>
@@ -3343,6 +3368,7 @@ export default function WeatherClient() {
                   Earlier hours use Open-Meteo model data.
                 </>
               )}
+              {" "}5 AM Fall = overnight total, 10 PM–5 AM.
             </p>
           </section>
 

@@ -9,11 +9,84 @@ import {
   formatRainfallInches,
   hourlyPrecipitationIntervals,
   normalizeNoaaPrecipitation,
+  overnightRainfallTotal,
   precipitationInches,
   recentRainfallTotal,
   remainingRainfallTotal,
 } from "../app/precipitation.mjs";
-import { chartTimeWindow } from "../app/forecast-chart-data.mjs";
+import { chartTimeWindow, overnightRainfallWindow } from "../app/forecast-chart-data.mjs";
+
+test("the 5 AM total includes previous-day 10 PM through 5 AM and excludes outside readings", () => {
+  const now = new Date("2026-11-02T10:00:00-08:00");
+  const window = overnightRainfallWindow("America/Los_Angeles", now);
+  const readings = [
+    { timestamp: "2026-11-01T22:00:00-08:00", amountInches: 5 },
+    ...Array.from({ length: 7 }, (_, index) => ({
+      timestamp: new Date(window.start + (index + 1) * 3_600_000).toISOString(),
+      amountInches: 0.01 * (index + 1),
+    })),
+    { timestamp: "2026-11-02T05:01:00-08:00", amountInches: 5 },
+  ];
+  assert.equal(formatRainfallColumn(overnightRainfallTotal(readings, [], window, now), false, true), "0.280");
+});
+
+test("overnight totals prefer complete hourly reports instead of summing overlapping updates", () => {
+  const now = new Date("2026-11-02T06:00:00-08:00");
+  const window = overnightRainfallWindow("America/Los_Angeles", now);
+  const readings = [
+    { timestamp: "2026-11-01T23:20:00-08:00", amountInches: 0.01, priority: 3 },
+    { timestamp: "2026-11-01T23:53:00-08:00", amountInches: 0.03, priority: 7 },
+    { timestamp: "2026-11-01T23:58:00-08:00", amountInches: null, priority: 7 },
+    { timestamp: "2026-11-02T00:53:00-08:00", amountInches: 0.02, priority: 7 },
+  ];
+  assert.equal(overnightRainfallTotal(readings, [], window, now), 0.05);
+});
+
+test("before 5 AM the overnight total combines observed hours with the remaining forecast", () => {
+  const now = new Date("2026-11-02T02:00:00-08:00");
+  const window = overnightRainfallWindow("America/Los_Angeles", now);
+  const readings = [
+    { timestamp: "2026-11-01T22:53:00-08:00", amountInches: 0.01 },
+    { timestamp: "2026-11-01T23:53:00-08:00", amountInches: 0.02 },
+    { timestamp: "2026-11-02T00:53:00-08:00", amountInches: 0.03 },
+    { timestamp: "2026-11-02T01:53:00-08:00", amountInches: 0.04 },
+    { timestamp: "2026-11-02T04:53:00-08:00", amountInches: 10 },
+  ];
+  const forecast = [{ startTime: window.start, endTime: window.end, totalInches: 0.14 }];
+  assert.equal(formatRainfallColumn(overnightRainfallTotal(readings, forecast, window, now), false, true), "0.160");
+});
+
+test("overnight missing observations stay unavailable while measured dry nights display zero", () => {
+  const now = new Date("2026-11-02T08:00:00-08:00");
+  const window = overnightRainfallWindow("America/Los_Angeles", now);
+  const oldForecast = [{ startTime: window.start, endTime: window.end, totalInches: 0.5 }];
+  assert.equal(overnightRainfallTotal([], oldForecast, window, now), null);
+  assert.equal(overnightRainfallTotal([
+    { timestamp: "2026-11-02T04:53:00-08:00", amountInches: 0 },
+  ], oldForecast, window, now), 0);
+});
+
+test("overnight windows follow the local clock across midnight, daylight saving, and fractional offsets", () => {
+  const fall = overnightRainfallWindow("America/Los_Angeles", new Date("2026-11-01T12:00:00-08:00"));
+  assert.equal(fall.start, Date.parse("2026-10-31T22:00:00-07:00"));
+  assert.equal(fall.end, Date.parse("2026-11-01T05:00:00-08:00"));
+  assert.equal(fall.end - fall.start, 8 * 3_600_000);
+  const spring = overnightRainfallWindow("America/Los_Angeles", new Date("2026-03-08T12:00:00-07:00"));
+  assert.equal(spring.end - spring.start, 6 * 3_600_000);
+  const nepal = overnightRainfallWindow("Asia/Kathmandu", new Date("2026-11-02T12:00:00+05:45"));
+  assert.equal(nepal.start, Date.parse("2026-11-01T22:00:00+05:45"));
+  assert.equal(nepal.end, Date.parse("2026-11-02T05:00:00+05:45"));
+});
+
+test("overnight observed totals include both occurrences of the repeated daylight-saving hour", () => {
+  const now = new Date("2026-11-01T06:00:00-08:00");
+  const window = overnightRainfallWindow("America/Los_Angeles", now);
+  const readings = [
+    { timestamp: "2026-11-01T01:53:00-07:00", amountInches: 0.01 },
+    { timestamp: "2026-11-01T01:53:00-08:00", amountInches: 0.02 },
+  ];
+  assert.equal(overnightRainfallTotal(readings, [], window, now), 0.03);
+});
 
 test("allocates the six-hour NOAA rainfall example without rounding the daily sum", () => {
   const intervals = normalizeNoaaPrecipitation({

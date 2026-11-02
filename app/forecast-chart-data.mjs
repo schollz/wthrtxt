@@ -122,10 +122,10 @@ export function rainfallChartScale(amountsInches, metric) {
   return { maximum: step * 4, precision: Math.max(0, -Math.floor(Math.log10(step))) };
 }
 
-/** Use calendar days in the forecast location, including daylight-saving days.
- * @param {string} timeZone @param {number} days @param {Date} [now]
+/** Resolve calendar-hour offsets from today's local midnight.
+ * @param {string} timeZone @param {number[]} hours @param {Date} now
  */
-export function chartTimeWindow(timeZone, days, now = new Date()) {
+function localCalendarTimes(timeZone, hours, now) {
   const formatter = new Intl.DateTimeFormat("en-CA", {
     timeZone, year: "numeric", month: "2-digit", day: "2-digit",
     hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23",
@@ -136,8 +136,8 @@ export function chartTimeWindow(timeZone, days, now = new Date()) {
   );
   const today = partsAt(now.getTime());
   const midnight = Date.UTC(today.year, today.month - 1, today.day);
-  const dayStarts = Array.from({ length: days + 1 }, (_, index) => {
-    const target = midnight + index * 24 * HOUR_MS;
+  return hours.map((hour) => {
+    const target = midnight + hour * HOUR_MS;
     let timestamp = target;
     for (let attempt = 0; attempt < 3; attempt += 1) {
       const parts = partsAt(timestamp);
@@ -147,6 +147,21 @@ export function chartTimeWindow(timeZone, days, now = new Date()) {
     }
     return timestamp;
   });
+}
 
+/** Use calendar days in the forecast location, including daylight-saving days.
+ * @param {string} timeZone @param {number} days @param {Date} [now]
+ */
+export function chartTimeWindow(timeZone, days, now = new Date()) {
+  const dayStarts = localCalendarTimes(timeZone,
+    Array.from({ length: days + 1 }, (_, index) => index * 24), now);
   return { start: dayStarts[0], end: dayStarts[days], dayStarts };
+}
+
+/** Previous day's 10 PM through today's 5 AM in the forecast location.
+ * @param {string} timeZone @param {Date} [now]
+ */
+export function overnightRainfallWindow(timeZone, now = new Date()) {
+  const [start, end] = localCalendarTimes(timeZone, [-2, 5], now);
+  return { start, end };
 }
