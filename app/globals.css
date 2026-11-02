@@ -4,6 +4,8 @@
   --foreground: #f0f0ed;
   --muted: #90908b;
   --line: #5b5b56;
+  --chart-temperature: #edb76c;
+  --chart-rain: #78b8d8;
   color-scheme: dark;
 }
 
@@ -12,6 +14,8 @@
   --foreground: #151513;
   --muted: #686862;
   --line: #9b9a92;
+  --chart-temperature: #9b5315;
+  --chart-rain: #176a96;
   color-scheme: light;
 }
 
@@ -335,7 +339,7 @@ a {
 .daily-labels,
 .daily-list li {
   display: grid;
-  grid-template-columns: 76px 28px 46px 46px 48px 48px 48px 1fr;
+  grid-template-columns: 76px 28px 46px 46px 48px 48px 48px 48px 1fr;
   align-items: center;
 }
 
@@ -383,7 +387,7 @@ a {
 .forecast-labels,
 .hourly-list li {
   display: grid;
-  grid-template-columns: 12px 58px 28px 58px 62px 1fr;
+  grid-template-columns: 12px 58px 28px 58px 62px 58px 1fr;
   align-items: center;
 }
 
@@ -463,6 +467,93 @@ a {
 .table-note {
   margin: 12px 0 0;
   font-size: 10px;
+}
+
+.forecast-chart {
+  margin: 24px 0 0;
+}
+
+.chart-heading,
+.chart-legend {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 10px;
+}
+
+.chart-legend {
+  gap: 14px;
+  margin-left: auto;
+}
+
+.chart-legend > span::before {
+  display: inline-block;
+  width: 12px;
+  margin-right: 5px;
+  border-top: 2px solid currentColor;
+  vertical-align: middle;
+  content: "";
+}
+
+.chart-temperature {
+  color: var(--chart-temperature);
+  fill: var(--chart-temperature);
+}
+
+.chart-rain {
+  color: var(--chart-rain);
+  fill: var(--chart-rain);
+}
+
+.chart-plot {
+  display: block;
+  width: 100%;
+  height: auto;
+  margin-top: 8px;
+  overflow: visible;
+  font-family: inherit;
+  font-size: 10px;
+  touch-action: pan-y;
+}
+
+.chart-plot:focus-visible {
+  outline: 1px dotted var(--muted);
+  outline-offset: 3px;
+}
+
+.chart-grid {
+  stroke: var(--line);
+  stroke-opacity: 0.4;
+  stroke-width: 0.5;
+}
+
+.chart-day-line {
+  stroke-dasharray: 2 4;
+}
+
+.chart-time {
+  fill: var(--muted);
+}
+
+.chart-series path {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.chart-cursor {
+  stroke: var(--muted);
+  stroke-dasharray: 2 3;
+}
+
+.chart-note {
+  min-height: 1.62em;
+  margin: 2px 0 0;
+  color: var(--muted);
+  font-size: 9px;
 }
 
 .site-footer {
@@ -746,19 +837,24 @@ a {
 
   .forecast-labels,
   .hourly-list li {
-    grid-template-columns: 10px 53px 26px 50px 52px 1fr;
+    grid-template-columns: 10px 50px 22px 42px 43px 38px 1fr;
     font-size: 11px;
   }
 
   .daily-labels,
   .daily-list li {
-    grid-template-columns: 59px 20px 34px 34px 38px 38px 38px 1fr;
+    grid-template-columns: 1.7fr 0.65fr repeat(5, 1fr) 1fr 1.25fr;
+    column-gap: 2px;
     font-size: 9px;
   }
 
   .forecast-labels,
   .daily-labels {
     font-size: 8px;
+  }
+
+  .chart-plot {
+    font-size: 13px;
   }
 
   .current-facts {

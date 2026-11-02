@@ -267,7 +267,8 @@ test("keeps worldwide weather requests and geolocation in the client app", async
     /forecastPrecipitationInches:\s+hourlyData\.precipitation\[index\]/,
   );
   assert.match(page, /rainfall forecast:/);
-  assert.match(page, /formatForecastRainfall/);
+  assert.match(page, /formatRainfallColumn/);
+  assert.match(page, /forecastRainfallSummary/);
   assert.match(page, /remainingRainfallTotal/);
   assert.match(page, /rawMessage\.match\(\/\\bP\(\\d\{4\}\)\\b\//);
   assert.match(page, /relativeHumidity/);

@@ -35,9 +35,10 @@ import { nominatimPlaceResults } from "./nominatim-places.mjs";
 import { photonPlaceResults } from "./photon-places.mjs";
 import {
   forecastPrecipitationForPeriod,
-  formatForecastRainfall,
-  formatObservedRainfall,
+  forecastRainfallSummary,
+  formatRainfallColumn,
   formatRainfallInches,
+  hourlyPrecipitationIntervals,
   normalizeNoaaPrecipitation,
   precipitationInches,
   recentRainfallTotal,
@@ -56,6 +57,8 @@ import {
   usesMetricUnits,
 } from "./units.mjs";
 import ProjectFooter from "./project-footer";
+import ForecastChart from "./forecast-chart";
+import { chartTimeWindow, forecastChartSeries } from "./forecast-chart-data.mjs";
 
 const DISPLAY_HOURS = Array.from({ length: 18 }, (_, index) => index + 5);
 const SEATTLE = { latitude: 47.6062, longitude: -122.3321 };
@@ -296,6 +299,7 @@ type WeatherData = {
   hourly: HourlyPeriod[];
   locationHint: LocationHint | null;
   observations: StationObservation[];
+  precipitationIntervals?: ReturnType<typeof normalizeNoaaPrecipitation>;
   provider: WeatherProvider;
   recordKey: string | null;
   state: string;
@@ -721,6 +725,7 @@ async function getNoaaWeather(
     hourly,
     locationHint,
     observations: stationData.observations,
+    precipitationIntervals,
     provider: "noaa",
     recordKey: stationData.stationId,
     state: point.properties.relativeLocation?.properties?.state ?? "",
@@ -2778,7 +2783,8 @@ export default function WeatherClient() {
                   observation.textDescription || "Observed conditions",
                 humidity: observation.relativeHumidity.value,
                 isDaytime: hour >= 6 && hour < 20,
-                rain: formatObservedRainfall(precipitation, metricUnits),
+                fall: formatRainfallColumn(precipitation, metricUnits, true),
+                rain: hourlyByHour.get(hour)?.probabilityOfPrecipitation?.value ?? null,
                 source: observation.source ?? ("observed" as const),
                 temperatureF:
                   observationTemperatureFahrenheit(observation),
@@ -2793,11 +2799,12 @@ export default function WeatherClient() {
                   description: period.shortForecast,
                   humidity: period.relativeHumidity?.value ?? null,
                   isDaytime: period.isDaytime,
-                  rain: formatForecastRainfall(
-                    precipitationProbability,
+                  fall: formatRainfallColumn(
                     period.forecastPrecipitationInches ?? null,
                     metricUnits,
+                    true,
                   ),
+                  rain: precipitationProbability,
                   source: "forecast" as const,
                   temperatureF: period.temperature,
                 };
@@ -2814,6 +2821,37 @@ export default function WeatherClient() {
     [weather],
   );
 
+  const chartData = useMemo(() => {
+    if (!weather) return null;
+
+    const now = new Date();
+    const series = forecastChartSeries(weather.hourly, weather.daily);
+    const today = chartTimeWindow(weather.timeZone, 1, now);
+    // Match the table's observed temperatures for past hours. Observed rainfall
+    // is an amount, so it must never be plotted as a rain probability.
+    const observations = new Map<number, StationObservation>();
+    weather.observations.forEach((observation) => {
+      const timestamp = Date.parse(observation.timestamp);
+      const minute = Number(zonedParts(new Date(timestamp), weather.timeZone).minute);
+      const time = Math.floor(timestamp / 60_000) * 60_000 - minute * 60_000;
+      if (time >= today.start && time < today.end && timestamp <= now.getTime()
+        && isPreferredObservation(observation, observations.get(time))) {
+        observations.set(time, observation);
+      }
+    });
+    const temperatures = new Map(series.temperature.map((point) => [point.time, point]));
+    observations.forEach((observation, time) => {
+      const value = observationTemperatureFahrenheit(observation);
+      if (value !== null) temperatures.set(time, { time, endTime: time + 3_600_000, value, coarse: false });
+    });
+
+    return {
+      series: { ...series, temperature: [...temperatures.values()].sort((a, b) => a.time - b.time) },
+      today,
+      week: chartTimeWindow(weather.timeZone, 7, now),
+    };
+  }, [weather]);
+
   const rainfallForecast = useMemo(
     () =>
       weather
@@ -2828,6 +2866,8 @@ export default function WeatherClient() {
     const today = localDateKey(new Date(), weather.timeZone);
     const periodsByDate = new Map<string, HourlyPeriod[]>();
     const hourlyByDate = new Map<string, HourlyPeriod[]>();
+    const precipitationIntervals = weather.precipitationIntervals ??
+      hourlyPrecipitationIntervals(weather.hourly);
     const observedTodayTemperatures = weather.observations.flatMap(
       (observation) => {
         const timestamp = new Date(observation.timestamp);
@@ -2869,6 +2909,9 @@ export default function WeatherClient() {
         const nighttime = periods.find((period) => !period.isDaytime);
         const representative = daytime ?? nighttime ?? periods[0];
         const hourlyPeriods = hourlyByDate.get(dateKey) ?? [];
+        const dayWindow = chartTimeWindow(
+          weather.timeZone, 1, new Date(representative.startTime),
+        );
         const record =
           climateRecordKey === weather.recordKey
             ? climateRecords[dateKey.slice(5)]
@@ -2890,6 +2933,9 @@ export default function WeatherClient() {
           isDaytime: representative.isDaytime,
           isToday: dateKey === today,
           low: nighttime?.temperature ?? null,
+          fall: forecastRainfallSummary(
+            precipitationIntervals, dayWindow.start, dayWindow.end,
+          ),
           rain: maximumPrecipitationChance(
             hourlyPeriods.length ? hourlyPeriods : periods,
           ),
@@ -3201,13 +3247,24 @@ export default function WeatherClient() {
               </div>
             </div>
 
+            {chartData && (
+              <ForecastChart
+                label="Today's temperature and rain probability"
+                series={chartData.series}
+                window={chartData.today}
+                timeZone={weather.timeZone}
+                metric={metricUnits}
+              />
+            )}
+
             <div className="forecast-labels" aria-hidden="true">
               <span />
               <span>time</span>
               <span>sky</span>
               <span>temp</span>
               <span>humid</span>
-              <span>rain*</span>
+              <span>rain</span>
+              <span>Fall</span>
             </div>
 
             <ol className="hourly-list">
@@ -3252,7 +3309,8 @@ export default function WeatherClient() {
                       ? "—"
                       : `${Math.round(reading.humidity)}%`}
                   </span>
-                  <span>{reading?.rain ?? "—"}</span>
+                  <span>{reading?.rain == null ? "—" : `${Math.round(reading.rain)}%`}</span>
+                  <span>{reading?.fall ?? "—"}</span>
                 </li>
               ))}
             </ol>
@@ -3260,15 +3318,15 @@ export default function WeatherClient() {
             <p className="table-note">
               {weather.provider === "noaa" ? (
                 <>
-                  * past = observed 1h rainfall (
-                  {metricUnits ? "mm" : "in."}) / future = precipitation chance.
+                  Fall ({metricUnits ? "mm" : "in."}): past = observed 1h rainfall;
+                  future = forecast 1h rainfall.
                   Earlier hours use station{" "}
                   {weather.stationId ?? "data"}.
                 </>
               ) : (
                 <>
-                  * past = estimated 1h precipitation (
-                  {metricUnits ? "mm" : "in."}) / future = precipitation chance.
+                  Fall ({metricUnits ? "mm" : "in."}): past = estimated 1h precipitation;
+                  future = forecast 1h precipitation.
                   Earlier hours use Open-Meteo model data.
                 </>
               )}
@@ -3285,6 +3343,16 @@ export default function WeatherClient() {
           >
             <h2 id="daily-heading">7-day forecast</h2>
 
+            {chartData && (
+              <ForecastChart
+                label="Seven-day temperature and rain probability"
+                series={chartData.series}
+                window={chartData.week}
+                timeZone={weather.timeZone}
+                metric={metricUnits}
+              />
+            )}
+
             <div className="daily-labels" aria-hidden="true">
               <span>day</span>
               <span>sky</span>
@@ -3294,6 +3362,7 @@ export default function WeatherClient() {
               <span>rec lo</span>
               <span>rec avg</span>
               <span>rain</span>
+              <span>Fall</span>
             </div>
 
             <ol className="daily-list">
@@ -3404,9 +3473,23 @@ export default function WeatherClient() {
                       ? "—"
                       : `${Math.round(forecast.rain.value)}%`}
                   </span>
+                  <span
+                    className={forecast.fall.amountInches === null ? undefined : "hover-tip"}
+                    data-tooltip={forecast.fall.amountInches === null ? undefined :
+                      `Forecast rainfall: ${formatRainfallInches(forecast.fall.amountInches, metricUnits)}${
+                        forecast.fall.coveredHours < forecast.fall.totalHours
+                          ? ` (${Math.round(forecast.fall.coveredHours)} of ${forecast.fall.totalHours} hours available)`
+                          : " (daily total)"}`}
+                    tabIndex={forecast.fall.amountInches === null ? undefined : 0}
+                  >
+                    {formatRainfallColumn(forecast.fall.amountInches, metricUnits)}
+                  </span>
                 </li>
               ))}
             </ol>
+            <p className="table-note">
+              Fall ({metricUnits ? "mm" : "in."}): totals cover available forecast hours.
+            </p>
           </section>
 
           <div className="ascii-rule" aria-hidden="true">

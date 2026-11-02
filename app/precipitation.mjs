@@ -105,8 +105,8 @@ export function normalizeNoaaPrecipitation(precipitation) {
  * Allocate interval totals proportionally to a forecast period.
  *
  * @param {PrecipitationInterval[]} intervals
- * @param {string} startValue
- * @param {string} endValue
+ * @param {string | number} startValue
+ * @param {string | number} endValue
  * @returns {number | null}
  */
 export function forecastPrecipitationForPeriod(
@@ -142,6 +142,61 @@ export function forecastPrecipitationForPeriod(
   });
 
   return foundInterval ? total : null;
+}
+
+/** Normalize already allocated hourly forecasts, including older cache entries.
+ * @param {ForecastPrecipitationPeriod[]} periods
+ * @returns {PrecipitationInterval[]}
+ */
+export function hourlyPrecipitationIntervals(periods) {
+  return periods.flatMap((period) => {
+    const startTime = Date.parse(period.startTime);
+    const endTime = Date.parse(period.endTime);
+    const totalInches = period.forecastPrecipitationInches;
+    return Number.isFinite(startTime) && endTime > startTime &&
+      typeof totalInches === "number" && Number.isFinite(totalInches) && totalInches >= 0
+      ? [{ startTime, endTime, totalInches }]
+      : [];
+  });
+}
+
+/** Sum a local day's forecast, preserving both unrounded amounts and coverage.
+ * @param {PrecipitationInterval[]} intervals
+ * @param {number} startTime
+ * @param {number} endTime
+ */
+export function forecastRainfallSummary(intervals, startTime, endTime) {
+  const spans = intervals.map((interval) => ({
+    start: Math.max(startTime, interval.startTime),
+    end: Math.min(endTime, interval.endTime),
+  })).filter((span) => span.end > span.start).sort((a, b) => a.start - b.start);
+  let covered = 0;
+  let coveredUntil = startTime;
+  spans.forEach((span) => {
+    covered += Math.max(0, span.end - Math.max(span.start, coveredUntil));
+    coveredUntil = Math.max(coveredUntil, span.end);
+  });
+
+  return {
+    amountInches: forecastPrecipitationForPeriod(intervals, startTime, endTime),
+    coveredHours: covered / 3_600_000,
+    totalHours: (endTime - startTime) / 3_600_000,
+  };
+}
+
+/** Compact numeric cells; units are stated below the table.
+ * @param {number | null | undefined} amount
+ * @param {boolean} [metric]
+ * @param {boolean} [hourly]
+ */
+export function formatRainfallColumn(amount, metric = false, hourly = false) {
+  if (amount == null || !Number.isFinite(amount) || amount < 0) return "—";
+  const value = metric ? amount * 25.4 : amount;
+  const precision = metric ? 1 : hourly ? 3 : 2;
+  const minimum = 10 ** -precision;
+  return value > 0 && value < minimum
+    ? `<${minimum.toFixed(precision)}`
+    : value.toFixed(precision);
 }
 
 function localDateKey(date, timeZone) {
