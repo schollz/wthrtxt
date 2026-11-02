@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { fahrenheitToCelsius, formatTemperature } from "./units.mjs";
 import { formatRainfallColumn } from "./precipitation.mjs";
 import { rainfallChartScale } from "./forecast-chart-data.mjs";
@@ -31,6 +31,15 @@ export default function ForecastChart({ label, series, window, timeZone, metric 
 }) {
   const id = useId();
   const [activeTime, setActiveTime] = useState<number | null>(null);
+  const [currentTime, setCurrentTime] = useState(() => new Date().getTime());
+  const daily = window.dayStarts.length > 2;
+
+  useEffect(() => {
+    if (daily) return;
+    const interval = globalThis.setInterval(() => setCurrentTime(new Date().getTime()), 60_000);
+    return () => globalThis.clearInterval(interval);
+  }, [daily]);
+
   const temperature = visibleSamples(series.temperature, window);
   const rain = visibleSamples(series.rainfall, window);
   const convert = (value: number) => metric ? fahrenheitToCelsius(value) : value;
@@ -72,7 +81,6 @@ export default function ForecastChart({ label, series, window, timeZone, metric 
     timeZone,
     ...(daily ? { weekday: "short" as const } : { hour: "numeric" as const }),
   }).format(time);
-  const daily = window.dayStarts.length > 2;
   const ticks = daily
     ? window.dayStarts.slice(0, -1).map((time, index) => ({
         time: time + (window.dayStarts[index + 1] - time) / 2,
@@ -130,6 +138,10 @@ export default function ForecastChart({ label, series, window, timeZone, metric 
             })}
             {daily && window.dayStarts.slice(1, -1).map((time) =>
               <line key={time} className="chart-grid chart-day-line" x1={x(time)} x2={x(time)} y1={TOP} y2={BOTTOM} />)}
+            {!daily && currentTime >= window.start && currentTime < window.end && (
+              <line className="chart-grid chart-now-line" aria-hidden="true"
+                x1={x(currentTime)} x2={x(currentTime)} y1={TOP} y2={BOTTOM} />
+            )}
             {ticks.map((tick) => <text key={tick.time} className="chart-time" x={x(tick.time)} y={HEIGHT - 7} textAnchor="middle">{tick.label}</text>)}
             <g className="chart-series chart-rain">
               <path d={rainPaths.solid} />
