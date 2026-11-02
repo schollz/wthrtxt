@@ -64,12 +64,14 @@ export default function ForecastChart({ label, series, window, timeZone, metric,
   const yTemp = (value: number) => BOTTOM - (convert(value) - low) / (high - low) * (BOTTOM - TOP);
   const yRain = (value: number) => BOTTOM - Math.max(0, convertRain(value)) / rainScale.maximum * (BOTTOM - TOP);
 
-  const paths = (samples: Sample[], y: (value: number) => number) => {
+  const paths = (samples: Sample[], y: (value: number) => number, connectGaps = false) => {
     const solid: string[] = [];
     const dashed: string[] = [];
-    samples.forEach((point, index) => {
-      const previous = samples[index - 1];
-      if (point.value === null || !previous || previous.value === null || previous.endTime < point.time) return;
+    const points = connectGaps ? samples.filter((point) => point.value !== null) : samples;
+    points.forEach((point, index) => {
+      const previous = points[index - 1];
+      if (point.value === null || !previous || previous.value === null ||
+        (!connectGaps && previous.endTime < point.time)) return;
       const target = point.coarse || previous.coarse ? dashed : solid;
       target.push(`M${x(previous.time)},${y(previous.value)} L${x(point.time)},${y(point.value)}`);
     });
@@ -98,7 +100,7 @@ export default function ForecastChart({ label, series, window, timeZone, metric,
         ...lower, start: lower.end, control1: lower.control2, control2: lower.control1, end: lower.start,
       })).join(" ")} Z`;
   }).join(" ");
-  const rainPaths = paths(rain, yRain);
+  const rainPaths = paths(rain, yRain, !daily);
   const times = [...new Set([...temperature, ...rain].map((point) => point.time))].sort((a, b) => a - b);
   const nearestTime = (time: number) => times.reduce((nearest, candidate) =>
     Math.abs(candidate - time) < Math.abs(nearest - time) ? candidate : nearest, times[0]);
@@ -154,6 +156,7 @@ export default function ForecastChart({ label, series, window, timeZone, metric,
               Dashed temperature lines use broader forecast periods.
               {spread.length > 0 && "The shaded band is a variation proxy, centered on the forecast using half the historical record range on each side."}
               Move across the chart or use the arrow keys to inspect values. Gaps mean unavailable data.
+              {!daily && "The rainfall line interpolates between available readings across missing hours."}
             </desc>
             {spreadPath && <path className="chart-temperature-spread" d={spreadPath} aria-hidden="true" />}
             {[0, 1, 2, 3, 4].map((index) => {
